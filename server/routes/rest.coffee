@@ -1,19 +1,8 @@
 dotize = Meteor.npmRequire 'dotize'
-collectionRefs = {}
-
 
 collection = new Mongo.Collection 'data'
 collection._ensureIndex
   _key: 1
-
-###
-getCollection = (name) ->
-  unless collectionRefs[name]
-    collectionRefs[name] = new Mongo.Collection name
-    collectionRefs[name]._ensureIndex
-      _key: 1
-  collectionRefs[name]
-###
 
 createKeysObject = (key) ->
   _keys = key.split('/').reduce (prev, curr, index, arr) ->
@@ -26,29 +15,52 @@ createKeysObject = (key) ->
   keys["#{k}"] = true for k in _keys
   keys
 
-Meteor.startup ->
-  Router.route('/api/v1/:key*', {where: 'server'})
-    .get ->
-      documents = collection.find("_key.#{@params.key}": true).fetch()
+Router.route('/api/v1/:key*', {where: 'server'})
+  .get ->
+    documents = collection.find("_key.#{@params.key}": true).fetch()
 
-      @response.writeHead 200, 'Content-Type': 'application/json'
-      @response.end EJSON.stringify documents#_.omit document, '_key', '_id'
+    @response.writeHead 200, 'Content-Type': 'application/json'
+    @response.end EJSON.stringify documents.map (doc)-> _.omit doc, '_key', '_id'
 
-    .put ->
-      document = @request.body
+  .put ->
+    document = @request.body
+    docCount = collection.find(_key: createKeysObject @params.key).count()
+    if docCount
+      @response.writeHead 422, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify
+        error: 'Document already exists.'
+    else
       collection.insert _.extend {_key: createKeysObject @params.key}, document
 
-      @response.writeHead 200, 'Content-Type': 'application/json'
+      @response.writeHead 201, 'Content-Type': 'application/json'
       @response.end EJSON.stringify document
 
-    .post ->
-      collection = getCollection @params.collection
-      document = @request.body
-      dotized = dotize.convert document
+  .post ->
+    document = @request.body
+    dotizedDocument = dotize.convert document
 
-      x = collection.update {_key: @params.key}, $set: dotized
-
+    docCount = collection.find("_key.#{@params.key}": true).count()
+    if docCount is 0
+      @response.writeHead 404, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify error: 'Document does not exist.'
+    else if docCount is 1 or @params.query?.multi is 'true'
+      collection.update {"_key.#{@params.key}": true}, {$set: dotizedDocument}, multi: true
       @response.writeHead 200, 'Content-Type': 'application/json'
+      documents = collection.find("_key.#{@params.key}": true).fetch()
+      @response.end EJSON.stringify documents.map (doc)-> _.omit doc, '_key', '_id'
+    else
+      @response.writeHead 409, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?multi=true to force update of multiple documents.'
 
-      document = collection.findOne _key: @params.key
-      @response.end EJSON.stringify _.omit document, '_key'
+  .delete ->
+    docCount = collection.find("_key.#{@params.key}": true).count()
+    if docCount is 0
+      @response.writeHead 404, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify error: 'Document does not exist.'
+    else if docCount is 1 or @params.query?.multi is 'true'
+      num = collection.remove "_key.#{@params.key}": true
+      @response.writeHead 200, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify deleted: num
+    else
+      @response.writeHead 409, 'Content-Type': 'application/json'
+      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?multi=true to force tremoval of multiple documents.'
