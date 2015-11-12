@@ -17,7 +17,12 @@ createKeysObject = (key) ->
 
 Router.route('/api/v1/:key*', {where: 'server'})
   .get ->
-    documents = collection.find("_key.#{@params.key}": true).fetch()
+    query =
+      "_key.#{@params.key}": true
+    if @params.query
+      query[name] = value for name, value of @params.query
+    console.log query
+    documents = collection.find(query).fetch()
 
     @response.writeHead 200, 'Content-Type': 'application/json'
     @response.end EJSON.stringify documents.map (doc)-> _.omit doc, '_key', '_id'
@@ -43,24 +48,24 @@ Router.route('/api/v1/:key*', {where: 'server'})
     if docCount is 0
       @response.writeHead 404, 'Content-Type': 'application/json'
       @response.end EJSON.stringify error: 'Document does not exist.'
-    else if docCount is 1 or @params.query?.multi is 'true'
+    else if docCount is 1 or @params.query?._multi is 'true'
       collection.update {"_key.#{@params.key}": true}, {$set: dotizedDocument}, multi: true
       @response.writeHead 200, 'Content-Type': 'application/json'
       documents = collection.find("_key.#{@params.key}": true).fetch()
       @response.end EJSON.stringify documents.map (doc)-> _.omit doc, '_key', '_id'
     else
       @response.writeHead 409, 'Content-Type': 'application/json'
-      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?multi=true to force update of multiple documents.'
+      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?_multi=true to force update of multiple documents.'
 
   .delete ->
     docCount = collection.find("_key.#{@params.key}": true).count()
     if docCount is 0
       @response.writeHead 404, 'Content-Type': 'application/json'
       @response.end EJSON.stringify error: 'Document does not exist.'
-    else if docCount is 1 or @params.query?.multi is 'true'
+    else if docCount is 1 or @params.query?._multi is 'true'
       num = collection.remove "_key.#{@params.key}": true
       @response.writeHead 200, 'Content-Type': 'application/json'
       @response.end EJSON.stringify deleted: num
     else
       @response.writeHead 409, 'Content-Type': 'application/json'
-      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?multi=true to force tremoval of multiple documents.'
+      @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?_multi=true to force tremoval of multiple documents.'
