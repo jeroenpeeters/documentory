@@ -1,8 +1,12 @@
 dotize = Meteor.npmRequire 'dotize'
+collectionRefs = {}
 
-collection = new Mongo.Collection 'data'
-collection._ensureIndex
-  _key: 1
+getCollection = (name) ->
+  unless collectionRefs[name]
+    collectionRefs[name] = new Mongo.Collection name
+    collectionRefs[name]._ensureIndex
+      _key: 1
+  collectionRefs[name]
 
 createKeysObject = (key) ->
   _keys = key.split('/').reduce (prev, curr, index, arr) ->
@@ -10,25 +14,24 @@ createKeysObject = (key) ->
     prev.push "#{base}#{curr}"
     prev
   , []
-
   keys = {}
   keys["#{k}"] = true for k in _keys
   keys
 
-Router.route('/api/v1/:key*', {where: 'server'})
+Router.route('/api/v1/:collectionName/:key*', {where: 'server'})
   .get ->
-    query =
-      "_key.#{@params.key}": true
+    query = if @params.key then "_key.#{@params.key}": true else {}
+
     if @params.query
       query[name] = value for name, value of @params.query
-    console.log query
-    documents = collection.find(query).fetch()
+    documents = getCollection(@params.collectionName).find(query).fetch()
 
     @response.writeHead 200, 'Content-Type': 'application/json'
     @response.end EJSON.stringify documents.map (doc)-> _.omit doc, '_key', '_id'
 
   .put ->
     document = @request.body
+    collection = getCollection(@params.collectionName)
     docCount = collection.find(_key: createKeysObject @params.key).count()
     if docCount
       @response.writeHead 422, 'Content-Type': 'application/json'
@@ -44,6 +47,7 @@ Router.route('/api/v1/:key*', {where: 'server'})
     document = @request.body
     dotizedDocument = dotize.convert document
 
+    collection = getCollection(@params.collectionName)
     docCount = collection.find("_key.#{@params.key}": true).count()
     if docCount is 0
       @response.writeHead 404, 'Content-Type': 'application/json'
@@ -58,6 +62,7 @@ Router.route('/api/v1/:key*', {where: 'server'})
       @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?_multi=true to force update of multiple documents.'
 
   .delete ->
+    collection = getCollection(@params.collectionName)
     docCount = collection.find("_key.#{@params.key}": true).count()
     if docCount is 0
       @response.writeHead 404, 'Content-Type': 'application/json'
@@ -69,3 +74,9 @@ Router.route('/api/v1/:key*', {where: 'server'})
     else
       @response.writeHead 409, 'Content-Type': 'application/json'
       @response.end EJSON.stringify error: 'There are multiple documents matching your query. Please, use ?_multi=true to force tremoval of multiple documents.'
+
+Router.route '/api/v1',
+  where: 'server'
+  action: ->
+    @response.writeHead 400, 'Content-Type': 'application/json'
+    @response.end EJSON.stringify error: 'Root key is required.'
