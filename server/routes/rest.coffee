@@ -11,10 +11,6 @@ getCollection = (name) ->
   console.log 'getCollection', name
   unless collectionRefs[name]
     collectionRefs[name] = new Mongo.Collection name
-    collectionRefs[name].allow
-      insert: true
-      update: true
-      remove: true
     collectionRefs[name]._ensureIndex _key: 1
     Meteor.publish name, -> collectionRefs[name].find()
   collectionRefs[name]
