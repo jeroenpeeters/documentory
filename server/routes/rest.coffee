@@ -1,11 +1,22 @@
 dotize = Meteor.npmRequire 'dotize'
 collectionRefs = {}
 
+Meteor.startup ->
+  coll = new Mongo.Collection '_system_'
+  coll.rawDatabase().collectionNames Meteor.bindEnvironment (err, collections) ->
+    for collection in collections when collection.name not in ['system.indexes']
+      getCollection collection.name
+
 getCollection = (name) ->
+  console.log 'getCollection', name
   unless collectionRefs[name]
     collectionRefs[name] = new Mongo.Collection name
-    collectionRefs[name]._ensureIndex
-      _key: 1
+    collectionRefs[name].allow
+      insert: true
+      update: true
+      remove: true
+    collectionRefs[name]._ensureIndex _key: 1
+    Meteor.publish name, -> collectionRefs[name].find()
   collectionRefs[name]
 
 createKeysObject = (key) ->
